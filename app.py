@@ -229,9 +229,11 @@ USER'S PRIORITIES (weighted importance):
         prompt += f"""
 USER'S QUESTION: {user_message}
 
+If the user only provides a greeting, suggest possible questions that they may want to inquire about.
+
 Please provide a comprehensive analysis that includes:
 1. **Financial Fit**: Calculate monthly payment estimates, down payment requirements, and how it fits within their budget
-2. **Key Considerations**: Analyze how each property aligns with their stated priorities (weighted by importance)
+2. **Key Considerations**: Analyze how each proper  ty aligns with their stated priorities (weighted by importance)
 3. **Potential Concerns**: Identify any red flags, risks, or challenges (e.g., short on down payment, market conditions, etc.)
 4. **Overall Score**: Provide a score out of 100 based on how well the property matches their profile and priorities
 
