@@ -23,29 +23,58 @@ interface Listing {
   url: string;
   price: string;
   location: string;
+  price_raw?: number;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  bedrooms?: number;
+  bathrooms?: number;
+  square_feet?: number;
+  property_type?: string;
+  year_built?: number;
+  lot_size?: number;
+  source?: string;
+  error?: string;
 }
 
-export function ParametersPanel() {
-  const [income, setIncome] = useState('120000');
-  const [savings, setSavings] = useState('60000');
-  const [budget, setBudget] = useState('3500');
-  const [creditScore, setCreditScore] = useState('740');
-  const [riskTolerance, setRiskTolerance] = useState([50]);
-  const [listingUrl, setListingUrl] = useState('');
-  
-  const [priorities, setPriorities] = useState<Priority[]>([
-    { id: 'affordability', label: 'Affordability', icon: DollarSign, value: 85, description: 'How important is staying within budget' },
-    { id: 'commute', label: 'Commute Time', icon: MapPin, value: 60, description: 'Proximity to work and transport' },
-    { id: 'safety', label: 'Neighborhood Safety', icon: Shield, value: 75, description: 'Crime rates and safety ratings' },
-    { id: 'schools', label: 'School Quality', icon: GraduationCap, value: 40, description: 'School district ratings' },
-    { id: 'investment', label: 'Investment Growth', icon: TrendingUp, value: 55, description: 'Potential for value appreciation' },
-    { id: 'renovation', label: 'Renovation Tolerance', icon: Wrench, value: 30, description: 'Willingness to do repairs' },
-  ]);
+interface ParametersPanelProps {
+  income: string;
+  setIncome: (value: string) => void;
+  savings: string;
+  setSavings: (value: string) => void;
+  budget: string;
+  setBudget: (value: string) => void;
+  creditScore: string;
+  setCreditScore: (value: string) => void;
+  riskTolerance: number[];
+  setRiskTolerance: (value: number[]) => void;
+  priorities: Priority[];
+  setPriorities: (value: Priority[]) => void;
+  listings: Listing[];
+  setListings: (value: Listing[]) => void;
+}
 
-  const [listings, setListings] = useState<Listing[]>([
-    { id: '1', url: 'https://zillow.com/...', price: '$425,000', location: 'Capitol Hill' },
-    { id: '2', url: 'https://redfin.com/...', price: '$510,000', location: 'Fremont' },
-  ]);
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+
+export function ParametersPanel({
+  income,
+  setIncome,
+  savings,
+  setSavings,
+  budget,
+  setBudget,
+  creditScore,
+  setCreditScore,
+  riskTolerance,
+  setRiskTolerance,
+  priorities,
+  setPriorities,
+  listings,
+  setListings,
+}: ParametersPanelProps) {
+  const [listingUrl, setListingUrl] = useState('');
+  const [isScraping, setIsScraping] = useState(false);
 
   const [financialOpen, setFinancialOpen] = useState(true);
   const [prioritiesOpen, setPrioritiesOpen] = useState(true);
@@ -55,16 +84,74 @@ export function ParametersPanel() {
     setPriorities(priorities.map(p => p.id === id ? { ...p, value } : p));
   };
 
-  const addListing = () => {
-    if (listingUrl.trim()) {
+  // Map icon names to actual icons
+  const iconMap: Record<string, any> = {
+    affordability: DollarSign,
+    commute: MapPin,
+    safety: Shield,
+    schools: GraduationCap,
+    investment: TrendingUp,
+    renovation: Wrench,
+  };
+
+  const addListing = async () => {
+    if (!listingUrl.trim()) return;
+    
+    setIsScraping(true);
+    const urlToScrape = listingUrl.trim();
+    setListingUrl('');
+    
+    try {
+      // Call the scraping API
+      const response = await fetch(`${API_BASE_URL}/api/scrape-listing`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: urlToScrape }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Scraping failed: ${response.status}`);
+      }
+      
+      const scrapedData = await response.json();
+      
+      // Create listing from scraped data
       const newListing: Listing = {
         id: Date.now().toString(),
-        url: listingUrl,
-        price: '$' + Math.floor(Math.random() * 500000 + 300000).toLocaleString(),
-        location: 'Location TBD',
+        url: scrapedData.url || urlToScrape,
+        price: scrapedData.price || 'Price not available',
+        location: scrapedData.location || 'Location not found',
+        price_raw: scrapedData.price_raw,
+        address: scrapedData.address,
+        city: scrapedData.city,
+        state: scrapedData.state,
+        zip_code: scrapedData.zip_code,
+        bedrooms: scrapedData.bedrooms,
+        bathrooms: scrapedData.bathrooms,
+        square_feet: scrapedData.square_feet,
+        property_type: scrapedData.property_type,
+        year_built: scrapedData.year_built,
+        lot_size: scrapedData.lot_size,
+        source: scrapedData.source,
+        error: scrapedData.error,
       };
+      
       setListings([...listings, newListing]);
-      setListingUrl('');
+    } catch (error) {
+      console.error('Error scraping listing:', error);
+      // Add listing with error info
+      const errorListing: Listing = {
+        id: Date.now().toString(),
+        url: urlToScrape,
+        price: 'Error loading price',
+        location: 'Error loading location',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+      setListings([...listings, errorListing]);
+    } finally {
+      setIsScraping(false);
     }
   };
 
@@ -85,8 +172,8 @@ export function ParametersPanel() {
   const affordability = getAffordabilityStatus();
 
   return (
-    <ScrollArea className="h-full">
-      <div className="p-4 space-y-4">
+    <ScrollArea className="h-full w-full">
+      <div className="p-4 space-y-4 min-w-0">
         {/* Financial Profile */}
         <Collapsible open={financialOpen} onOpenChange={setFinancialOpen}>
           <Card>
@@ -174,7 +261,7 @@ export function ParametersPanel() {
                     <span>Conservative</span>
                     <span>Balanced</span>
                     <span>Aggressive</span>
-                  </div>
+                  </div>  
                 </div>
               </CardContent>
             </CollapsibleContent>
@@ -193,7 +280,7 @@ export function ParametersPanel() {
             <CollapsibleContent>
               <CardContent className="space-y-5">
                 {priorities.map((priority) => {
-                  const Icon = priority.icon;
+                  const Icon = iconMap[priority.id] || DollarSign;
                   return (
                     <div key={priority.id} className="space-y-2">
                       <div className="flex items-center justify-between">
@@ -240,36 +327,59 @@ export function ParametersPanel() {
               </CardHeader>
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-4 min-w-0">
                 <div className="space-y-2">
                   <Label htmlFor="listing-url">Property URL</Label>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 min-w-0">
                     <Input
                       id="listing-url"
                       value={listingUrl}
                       onChange={(e) => setListingUrl(e.target.value)}
                       placeholder="https://zillow.com/..."
-                      onKeyDown={(e) => e.key === 'Enter' && addListing()}
+                      onKeyDown={(e) => e.key === 'Enter' && !isScraping && addListing()}
+                      disabled={isScraping}
+                      className="flex-1 min-w-0"
                     />
-                    <Button onClick={addListing} size="icon" className="shrink-0">
-                      <Plus className="size-4" />
+                    <Button 
+                      onClick={addListing} 
+                      size="icon" 
+                      className="shrink-0"
+                      disabled={isScraping || !listingUrl.trim()}
+                    >
+                      {isScraping ? (
+                        <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Plus className="size-4" />
+                      )}
                     </Button>
                   </div>
+                  {isScraping && (
+                    <p className="text-xs text-slate-500">Scraping property information...</p>
+                  )}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 min-w-0">
                   {listings.map((listing) => (
                     <div
                       key={listing.id}
-                      className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 bg-white hover:border-teal-300 transition-colors"
+                      className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 bg-white hover:border-teal-300 transition-colors min-w-0"
                     >
                       <div className="size-12 rounded bg-slate-100 shrink-0 flex items-center justify-center">
                         <Home className="size-6 text-slate-400" />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-slate-900">{listing.price}</p>
+                      <div className="flex-1 min-w-0 overflow-hidden">
+                        <p className="font-medium text-slate-900 truncate">{listing.price}</p>
                         <p className="text-sm text-slate-500 truncate">{listing.location}</p>
-                        <p className="text-xs text-slate-400 truncate">{listing.url}</p>
+                        {listing.bedrooms && listing.bathrooms && (
+                          <p className="text-xs text-slate-400 truncate">
+                            {listing.bedrooms} bed • {listing.bathrooms} bath
+                            {listing.square_feet && ` • ${listing.square_feet.toLocaleString()} sq ft`}
+                          </p>
+                        )}
+                        {listing.error && (
+                          <p className="text-xs text-rose-500 truncate">Error: {listing.error}</p>
+                        )}
+                        <p className="text-xs text-slate-400 truncate mt-1">{listing.url}</p>
                       </div>
                       <Button
                         variant="ghost"

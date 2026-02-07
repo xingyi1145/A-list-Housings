@@ -12,13 +12,37 @@ interface Message {
   formatted?: boolean;
 }
 
+interface ChatPanelProps {
+  parameters: {
+    financial: {
+      income: string;
+      savings: string;
+      budget: string;
+      creditScore: string;
+      riskTolerance: number;
+    };
+    priorities: Array<{
+      label: string;
+      value: number;
+      description: string;
+    }>;
+    listings: Array<{
+      location: string;
+      price: string;
+      url: string;
+    }>;
+  };
+}
+
 const quickPrompts = [
   "Is this affordable?",
   "Best option for my priorities",
   "Market outlook next 6 months"
 ];
 
-export function ChatPanel() {
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+
+export function ChatPanel({ parameters }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -63,7 +87,7 @@ export function ChatPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!input.trim()) return;
 
     const userMessage: Message = {
@@ -74,20 +98,46 @@ export function ChatPanel() {
     };
 
     setMessages([...messages, userMessage]);
+    const currentInput = input;
     setInput('');
     setIsThinking(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: currentInput,
+          parameters: parameters,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: "I'd be happy to help with that! Based on your current financial profile and priorities, here are my thoughts...",
-        formatted: false,
+        content: data.content || "I'm sorry, I couldn't generate a response. Please try again.",
+        formatted: data.formatted || false,
       };
       setMessages(prev => [...prev, aiMessage]);
+    } catch (error) {
+      console.error('Error calling chat API:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: "I'm sorry, I encountered an error. Please make sure the backend server is running and the Gemini API key is configured.",
+        formatted: false,
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsThinking(false);
-    }, 1500);
+    }
   };
 
   const handleQuickPrompt = (prompt: string) => {

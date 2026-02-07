@@ -5,9 +5,12 @@ from urllib.parse import quote_plus, urlencode
 
 from authlib.integrations.flask_client import OAuth
 from dotenv import find_dotenv, load_dotenv
-from flask import Flask, redirect, render_template, session, url_for, request, flash
+from flask import Flask, redirect, render_template, session, url_for, request, flash, jsonify
+from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
+import google.generativeai as genai
+from listing_scraper import ListingScraper
 
 # Load environment variables
 ENV_FILE = find_dotenv()
@@ -19,6 +22,15 @@ app = Flask(__name__)
 app.secret_key = env.get("APP_SECRET_KEY")
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///housing_stress.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+CORS(app)  # Enable CORS for frontend API calls
+
+# Configure Gemini API
+GEMINI_API_KEY = env.get("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+# Initialize listing scraper
+listing_scraper = ListingScraper()
 
 # --- Database Setup ---
 class Base(DeclarativeBase):
@@ -136,6 +148,113 @@ def dashboard():
     # Financial logic removed - managed by other team members
 
     return render_template("dashboard.html", user=current_user, auth0_info=session["user"])
+
+@app.route("/api/scrape-listing", methods=["POST"])
+def scrape_listing():
+    """API endpoint for scraping housing listing information from URLs"""
+    try:
+        data = request.get_json()
+        url = data.get("url", "")
+        
+        if not url:
+            return jsonify({"error": "URL is required"}), 400
+        
+        # Scrape the listing
+        scraped_data = listing_scraper.scrape(url)
+        
+        return jsonify(scraped_data)
+        
+    except Exception as e:
+        print(f"Scraping API error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    """API endpoint for Gemini-powered chat with financial analysis"""
+    try:
+        data = request.get_json()
+        user_message = data.get("message", "")
+        parameters = data.get("parameters", {})
+        
+        if not GEMINI_API_KEY:
+            return jsonify({"error": "Gemini API key not configured"}), 500
+        
+        # Extract parameters
+        financial = parameters.get("financial", {})
+        priorities = parameters.get("priorities", [])
+        listings = parameters.get("listings", [])
+        
+        # Build context prompt
+        prompt = f"""You are an expert AI real estate advisor helping users analyze properties based on their financial profile and priorities.
+
+USER'S FINANCIAL PROFILE:
+- Annual Income: ${financial.get('income', 'N/A')}
+- Savings/Down Payment: ${financial.get('savings', 'N/A')}
+- Monthly Housing Budget: ${financial.get('budget', 'N/A')}
+- Credit Score: {financial.get('creditScore', 'N/A')}
+- Risk Tolerance: {financial.get('riskTolerance', 50)}/100 ({'Conservative' if financial.get('riskTolerance', 50) < 35 else 'Aggressive' if financial.get('riskTolerance', 50) > 65 else 'Balanced'})
+
+USER'S PRIORITIES (weighted importance):
+"""
+        
+        for priority in priorities:
+            prompt += f"- {priority.get('label', '')}: {priority.get('value', 0)}% - {priority.get('description', '')}\n"
+        
+        if listings:
+            prompt += f"\nPROPERTIES TO ANALYZE:\n"
+            for listing in listings:
+                # Include scraped data in JSON format
+                listing_data = {
+                    'url': listing.get('url', 'N/A'),
+                    'price': listing.get('price', 'N/A'),
+                    'price_raw': listing.get('price_raw'),
+                    'location': listing.get('location', 'Unknown'),
+                    'address': listing.get('address'),
+                    'city': listing.get('city'),
+                    'state': listing.get('state'),
+                    'zip_code': listing.get('zip_code'),
+                    'bedrooms': listing.get('bedrooms'),
+                    'bathrooms': listing.get('bathrooms'),
+                    'square_feet': listing.get('square_feet'),
+                    'property_type': listing.get('property_type'),
+                    'year_built': listing.get('year_built'),
+                    'lot_size': listing.get('lot_size'),
+                    'source': listing.get('source', 'unknown')
+                }
+                
+                prompt += f"\nProperty {listing.get('location', 'Unknown')}:\n"
+                prompt += f"JSON Data: {json.dumps(listing_data, indent=2)}\n"
+                prompt += f"URL: {listing.get('url', 'N/A')}\n"
+        
+        prompt += f"""
+USER'S QUESTION: {user_message}
+
+Please provide a comprehensive analysis that includes:
+1. **Financial Fit**: Calculate monthly payment estimates, down payment requirements, and how it fits within their budget
+2. **Key Considerations**: Analyze how each property aligns with their stated priorities (weighted by importance)
+3. **Potential Concerns**: Identify any red flags, risks, or challenges (e.g., short on down payment, market conditions, etc.)
+4. **Overall Score**: Provide a score out of 100 based on how well the property matches their profile and priorities
+
+Format your response using markdown with:
+- **Bold** for section headers
+- • Bullet points for lists
+- ⚠️ for warnings/concerns
+- Clear, actionable advice
+
+Be specific, use numbers when possible, and provide practical recommendations."""
+
+        # Call Gemini API
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content(prompt)
+        
+        return jsonify({
+            "content": response.text,
+            "formatted": True
+        })
+        
+    except Exception as e:
+        print(f"Chat API error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=env.get("PORT", 3000), debug=True)
