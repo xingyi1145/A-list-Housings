@@ -426,11 +426,22 @@ class HousePricePredictor:
         # Get house-specific multiplier
         house_multiplier, expected_price = self.hedonic_model.predict_house_multiplier(house_features)
         
-        # Calculate future prices for each year
+        # Gradual adjustment: 50% Year 1, 30% Year 2, 20% Year 3, then full
+        adjustment_schedule = {
+            1: 0.50,  # 50% of adjustment in year 1
+            2: 0.80,  # 80% cumulative by year 2 (50% + 30%)
+            3: 1.00,  # 100% by year 3 (50% + 30% + 20%)
+            4: 1.00,  # Full adjustment
+            5: 1.00   # Full adjustment
+        }
+        
+        # Calculate future prices for each year with gradual correction
         yearly_predictions = {}
         for year in range(1, 6):
             market_growth = self.hpi_forecaster.yearly_growth_factors[year]
-            yearly_predictions[year] = current_price * market_growth * house_multiplier
+            # Apply gradual multiplier: 1 + (adjustment_pct × (house_multiplier - 1))
+            gradual_multiplier = 1 + adjustment_schedule[year] * (house_multiplier - 1)
+            yearly_predictions[year] = current_price * market_growth * gradual_multiplier
         
         # Breakdown (using 5-year values for summary)
         breakdown = {

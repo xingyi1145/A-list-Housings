@@ -21,9 +21,40 @@ A complete housing price prediction system that forecasts individual house price
 - **Performance**: Test R² = 0.790, Test MAE = $306,806
 
 ### 3. Prediction Formula
+
+**Base Formula:**
 ```
-future_price = current_price × market_growth_factor × house_multiplier
+future_price[year] = current_price × market_growth_factor[year] × gradual_multiplier[year]
 ```
+
+**Gradual Correction Algorithm:**
+
+To provide more realistic predictions, the system applies feature adjustments gradually over 3 years using a 50/30/20 split:
+
+```python
+adjustment_schedule = {
+    1: 0.50,  # 50% of correction in Year 1
+    2: 0.30,  # 30% of correction in Year 2
+    3: 0.20,  # 20% of correction in Year 3
+    4: 0.0,   # Full correction applied, no further adjustment
+    5: 0.0
+}
+
+gradual_multiplier = 1 + adjustment_schedule[year] × (house_multiplier - 1)
+```
+
+**Example:**
+- If a house has `house_multiplier = 0.85` (15% overvalued):
+  - Year 1: Adjust by 50% × (-15%) = -7.5%
+  - Year 2: Adjust by 30% × (-15%) = -4.5%
+  - Year 3: Adjust by 20% × (-15%) = -3.0%
+  - Years 4-5: Full correction applied, follow market growth only
+
+**Rationale:**
+The gradual approach better represents actual market price discovery, where mispriced properties don't instantly jump to "fair value" but correct over time as buyers and sellers adjust expectations. The 50/30/20 schedule front-loads the correction while spreading it realistically.
+
+**Alternative Interpretation - Instant Correction:**
+If you want to see "fair market value today" based on features, use `house_multiplier` directly without gradual adjustment. This shows what the house "should" be worth given its characteristics, independent of current market price.
 
 ## Key Files
 
