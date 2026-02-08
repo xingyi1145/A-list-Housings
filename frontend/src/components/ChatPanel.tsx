@@ -93,6 +93,7 @@ export function ChatPanel({ parameters }: ChatPanelProps) {
   const [listings, setListings] = useState<Listing[]>([]);
   const [listingUrl, setListingUrl] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isScraping, setIsScraping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -163,17 +164,85 @@ export function ChatPanel({ parameters }: ChatPanelProps) {
     }
   };
 
-  const addListing = () => {
-    if (listingUrl.trim()) {
+  const addListing = async () => {
+    if (!listingUrl.trim()) return;
+    
+    setIsScraping(true);
+    const urlToScrape = listingUrl.trim();
+    setListingUrl('');
+    
+    console.log('[CHAT ADD LISTING] Starting scrape for:', urlToScrape);
+    console.log('[CHAT ADD LISTING] API URL:', `${API_BASE_URL}/api/scrape-listing`);
+    
+    try {
+      // Call the scraping API
+      const response = await fetch(`${API_BASE_URL}/api/scrape-listing`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: urlToScrape }),
+      });
+      
+      console.log('[CHAT ADD LISTING] Scrape response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`Scraping failed: ${response.status}`);
+      }
+      
+      const scrapedData = await response.json();
+      console.log('[CHAT ADD LISTING] Scraped data:', scrapedData);
+      
+      // Create listing from scraped data
       const newListing: Listing = {
         id: Date.now().toString(),
-        url: listingUrl,
-        price: '$' + Math.floor(Math.random() * 500000 + 300000).toLocaleString(),
-        location: 'Location TBD',
+        url: scrapedData.url || urlToScrape,
+        price: scrapedData.price || 'Price not available',
+        location: scrapedData.location || 'Location not found',
       };
+      
+      // Save to database
+      console.log('[CHAT ADD LISTING] Saving to database...');
+      try {
+        const saveResponse = await fetch(`${API_BASE_URL}/api/listings`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ listing: scrapedData }),
+        });
+        
+        console.log('[CHAT ADD LISTING] Save response status:', saveResponse.status);
+        
+        if (saveResponse.ok) {
+          const savedData = await saveResponse.json();
+          console.log('[CHAT ADD LISTING] Listing saved to database:', savedData);
+          if (savedData.listing?.id) {
+            newListing.id = savedData.listing.id.toString();
+          }
+        } else {
+          const errorData = await saveResponse.json();
+          console.error('[CHAT ADD LISTING] Failed to save listing to database:', errorData);
+        }
+      } catch (saveError) {
+        console.error('[CHAT ADD LISTING] Error saving listing to database:', saveError);
+      }
+      
+      console.log('[CHAT ADD LISTING] Adding to UI:', newListing);
       setListings([...listings, newListing]);
-      setListingUrl('');
       setIsAddDialogOpen(false);
+    } catch (error) {
+      console.error('[CHAT ADD LISTING] Error scraping listing:', error);
+      const errorListing: Listing = {
+        id: Date.now().toString(),
+        url: urlToScrape,
+        price: 'Error loading price',
+        location: 'Error loading location',
+      };
+      setListings([...listings, errorListing]);
+      setIsAddDialogOpen(false);
+    } finally {
+      setIsScraping(false);
     }
   };
 

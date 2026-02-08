@@ -101,6 +101,9 @@ export function ParametersPanel({
     const urlToScrape = listingUrl.trim();
     setListingUrl('');
     
+    console.log('[ADD LISTING] Starting scrape for:', urlToScrape);
+    console.log('[ADD LISTING] API URL:', `${API_BASE_URL}/api/scrape-listing`);
+    
     try {
       // Call the scraping API
       const response = await fetch(`${API_BASE_URL}/api/scrape-listing`, {
@@ -111,11 +114,14 @@ export function ParametersPanel({
         body: JSON.stringify({ url: urlToScrape }),
       });
       
+      console.log('[ADD LISTING] Scrape response status:', response.status);
+      
       if (!response.ok) {
         throw new Error(`Scraping failed: ${response.status}`);
       }
       
       const scrapedData = await response.json();
+      console.log('[ADD LISTING] Scraped data:', scrapedData);
       
       // Create listing from scraped data
       const newListing: Listing = {
@@ -138,9 +144,39 @@ export function ParametersPanel({
         error: scrapedData.error,
       };
       
+      // Save to database
+      console.log('[ADD LISTING] Saving to database...');
+      try {
+        const saveResponse = await fetch(`${API_BASE_URL}/api/listings`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ listing: scrapedData }),
+        });
+        
+        console.log('[ADD LISTING] Save response status:', saveResponse.status);
+        
+        if (saveResponse.ok) {
+          const savedData = await saveResponse.json();
+          console.log('[ADD LISTING] Listing saved to database:', savedData);
+          // Update listing with database ID if returned
+          if (savedData.listing?.id) {
+            newListing.id = savedData.listing.id.toString();
+          }
+        } else {
+          const errorData = await saveResponse.json();
+          console.error('[ADD LISTING] Failed to save listing to database:', errorData);
+        }
+      } catch (saveError) {
+        console.error('[ADD LISTING] Error saving listing to database:', saveError);
+        // Continue anyway - listing will still appear in UI
+      }
+      
+      console.log('[ADD LISTING] Adding to UI:', newListing);
       setListings([...listings, newListing]);
     } catch (error) {
-      console.error('Error scraping listing:', error);
+      console.error('[ADD LISTING] Error scraping listing:', error);
       // Add listing with error info
       const errorListing: Listing = {
         id: Date.now().toString(),

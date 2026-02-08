@@ -232,21 +232,26 @@ def dashboard():
 
 @app.route("/api/scrape-listing", methods=["POST"])
 def scrape_listing():
-    """API endpoint for scraping housing listing information from URLs"""
+    """API endpoint for scrapinnowg housing listing information from URLs"""
     try:
         data = request.get_json()
         url = data.get("url", "")
         
+        print(f"[SCRAPE] Received request for URL: {url}")
+        
         if not url:
+            print("[SCRAPE] Error: No URL provided")
             return jsonify({"error": "URL is required"}), 400
         
         # Scrape the listing
+        print(f"[SCRAPE] Starting scrape for: {url}")
         scraped_data = listing_scraper.scrape(url)
+        print(f"[SCRAPE] Successfully scraped: {scraped_data.get('location', 'Unknown location')}")
         
         return jsonify(scraped_data)
         
     except Exception as e:
-        print(f"Scraping API error: {e}")
+        print(f"[SCRAPE] Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/listings", methods=["GET"])
@@ -270,6 +275,8 @@ def save_listing():
     try:
         data = request.get_json()
         listing_data = data.get("listing", {})
+        
+        print(f"[SAVE] Received request to save listing: {listing_data.get('location', 'Unknown')}")
         
         # Get user from session (for now, we'll use a default user ID if not logged in)
         user_id = 1  # Default for testing
@@ -314,6 +321,8 @@ def save_listing():
         db.session.add(saved_listing)
         db.session.commit()
         
+        print(f"[SAVE] Successfully saved listing ID: {saved_listing.id}")
+        
         return jsonify({
             "success": True,
             "listing": saved_listing.to_dict()
@@ -321,7 +330,7 @@ def save_listing():
         
     except Exception as e:
         db.session.rollback()
-        print(f"Save listing error: {e}")
+        print(f"[SAVE] Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/chat", methods=["POST"])
