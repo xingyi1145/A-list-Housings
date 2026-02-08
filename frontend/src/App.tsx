@@ -39,6 +39,38 @@ interface Listing {
 }
 
 export default function App() {
+  // Auth state
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Check authentication on load
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch('/api/user');
+        if (res.ok) {
+          const data = await res.json();
+          if (data) {
+            setUser(data);
+          } else {
+            window.location.href = '/login';
+            return;
+          }
+        } else {
+          window.location.href = '/login';
+          return;
+        }
+      } catch (err) {
+        console.error('Auth check failed:', err);
+        window.location.href = '/login';
+        return;
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+    checkAuth();
+  }, []);
+
   // Financial profile state
   const [income, setIncome] = useState('120000');
   const [savings, setSavings] = useState('60000');
@@ -137,6 +169,14 @@ export default function App() {
       source: l.source,
     })),
   };
+
+  if (authLoading) {
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p>Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>

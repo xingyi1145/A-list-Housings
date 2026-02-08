@@ -206,7 +206,7 @@ def home():
 
 @app.route("/login")
 def login():
-    redirect_uri = url_for("callback", _external=True)
+    redirect_uri = "http://127.0.0.1:5000/callback"
     print(f"DEBUG: Calculated Callback URL: {redirect_uri}")
     return oauth.auth0.authorize_redirect(
         redirect_uri=redirect_uri
@@ -240,12 +240,20 @@ def callback():
         else:
             print(f"User logged in: {existing_user.email}")
             
-        return redirect(url_for("dashboard"))
+        return redirect("http://127.0.0.1:3000/")
         
     except Exception as e:
         print(f"Login error: {e}")
         flash("Authentication failed.")
-        return redirect(url_for("home"))
+        return redirect("http://127.0.0.1:3000/")
+
+@app.route("/api/user")
+def get_user():
+    """Return the logged-in user session info as JSON"""
+    user = session.get("user")
+    if user:
+        return jsonify(user)
+    return jsonify(None), 401
 
 @app.route("/logout")
 def logout():
@@ -255,7 +263,7 @@ def logout():
         + "/v2/logout?"
         + urlencode(
             {
-                "returnTo": url_for("home", _external=True),
+                "returnTo": "http://127.0.0.1:5000/",
                 "client_id": env.get("AUTH0_CLIENT_ID"),
             },
             quote_via=quote_plus,
@@ -588,4 +596,4 @@ Be specific, use numbers when possible, and provide practical recommendations.""
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=env.get("PORT", 5001), debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
