@@ -135,6 +135,48 @@ class SavedListing(db.Model):
     def __repr__(self):
         return f'<SavedListing {self.location} - {self.price}>'
 
+class ChatMessage(db.Model):
+    """Database model for chat history with AI advisor"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    message = db.Column(db.Text, nullable=False)  # User's message
+    response = db.Column(db.Text, nullable=False)  # AI's response
+    parameters = db.Column(db.Text)  # JSON string of financial/priority parameters
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    
+    def to_dict(self):
+        """Convert database model to dictionary"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'message': self.message,
+            'response': self.response,
+            'parameters': json.loads(self.parameters) if self.parameters else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+    
+    def __repr__(self):
+        return f'<ChatMessage {self.id} - User {self.user_id}>'
+
+class ViewedListing(db.Model):
+    """Database model for tracking listings that users view"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    listing_id = db.Column(db.Integer, db.ForeignKey('saved_listing.id'), nullable=False)
+    viewed_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    
+    def to_dict(self):
+        """Convert database model to dictionary"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'listing_id': self.listing_id,
+            'viewed_at': self.viewed_at.isoformat() if self.viewed_at else None
+        }
+    
+    def __repr__(self):
+        return f'<ViewedListing {self.id} - User {self.user_id} viewed Listing {self.listing_id}>'
+
 # Create tables if they don't exist
 with app.app_context():
     db.create_all()
@@ -234,7 +276,7 @@ def dashboard():
 
 @app.route("/api/scrape-listing", methods=["POST"])
 def scrape_listing():
-    """API endpoint for scrapinnowg housing listing information from URLs"""
+    """API endpoint for scraping housing listing information from URLs"""
     try:
         data = request.get_json()
         url = data.get("url", "")
@@ -335,6 +377,103 @@ def save_listing():
         print(f"[SAVE] Error: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/chat-history", methods=["GET"])
+def get_chat_history():
+    """API endpoint to retrieve chat history for a user"""
+    try:
+        user_id = request.args.get('user_id', 1, type=int)  # Default to user 1
+        limit = request.args.get('limit', 50, type=int)  # Default to 50 messages
+        
+        messages = db.session.execute(
+            db.select(ChatMessage)
+            .filter_by(user_id=user_id)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(limit)
+        ).scalars().all()
+        
+        return jsonify({
+            "success": True,
+            "messages": [msg.to_dict() for msg in messages]
+        })
+        
+    except Exception as e:
+        print(f"[CHAT HISTORY] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/viewed-listings", methods=["GET", "POST"])
+def viewed_listings():
+    """API endpoint to track and retrieve viewed listings"""
+    if request.method == "POST":
+        # Track a viewed listing
+        try:
+            data = request.get_json()
+            user_id = data.get('user_id', 1)  # Default to user 1
+            listing_id = data.get('listing_id')
+            
+            if not listing_id:
+                return jsonify({"error": "listing_id is required"}), 400
+            
+            # Check if already viewed recently (within last hour)
+            recent_view = db.session.execute(
+                db.select(ViewedListing)
+                .filter_by(user_id=user_id, listing_id=listing_id)
+                .filter(ViewedListing.viewed_at > db.func.datetime('now', '-1 hour'))
+            ).scalar_one_or_none()
+            
+            if not recent_view:
+                viewed = ViewedListing(
+                    user_id=user_id,
+                    listing_id=listing_id
+                )
+                db.session.add(viewed)
+                db.session.commit()
+                print(f"[VIEWED] User {user_id} viewed listing {listing_id}")
+            
+            return jsonify({"success": True})
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"[VIEWED] Error: {e}")
+            return jsonify({"error": str(e)}), 500
+    else:
+        # GET: Retrieve viewed listings
+        try:
+            user_id = request.args.get('user_id', 1, type=int)
+            limit = request.args.get('limit', 50, type=int)
+            
+            viewed = db.session.execute(
+                db.select(ViewedListing)
+                .filter_by(user_id=user_id)
+                .order_by(ViewedListing.viewed_at.desc())
+                .limit(limit)
+            ).scalars().all()
+            
+            # Get the actual listings
+            listing_ids = [v.listing_id for v in viewed]
+            listings = db.session.execute(
+                db.select(SavedListing)
+                .filter(SavedListing.id.in_(listing_ids))
+            ).scalars().all()
+            
+            listings_dict = {l.id: l.to_dict() for l in listings}
+            
+            result = []
+            for v in viewed:
+                if v.listing_id in listings_dict:
+                    result.append({
+                        'viewed_at': v.viewed_at.isoformat(),
+                        'listing': listings_dict[v.listing_id]
+                    })
+            
+            return jsonify({
+                "success": True,
+                "viewed_listings": result
+            })
+            
+        except Exception as e:
+            print(f"[VIEWED] Error: {e}")
+            return jsonify({"error": str(e)}), 500
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     """API endpoint for Gemini-powered chat with financial analysis"""
@@ -422,6 +561,22 @@ Be specific, use numbers when possible, and provide practical recommendations.""
         )
         
         response_text = response.text
+        
+        # Save chat message to database
+        try:
+            user_id = 1  # Default user for testing, should come from session/auth
+            chat_message = ChatMessage(
+                user_id=user_id,
+                message=user_message,
+                response=response_text.strip(),
+                parameters=json.dumps(parameters) if parameters else None
+            )
+            db.session.add(chat_message)
+            db.session.commit()
+            print(f"[CHAT] Saved message ID: {chat_message.id}")
+        except Exception as e:
+            print(f"[CHAT] Error saving message: {e}")
+            db.session.rollback()
         
         return jsonify({
             "content": response_text.strip(),

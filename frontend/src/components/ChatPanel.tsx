@@ -41,6 +41,8 @@ interface ChatPanelProps {
       url: string;
     }>;
   };
+  listings: Listing[];
+  setListings: (listings: Listing[]) => void;
 }
 
 const quickPrompts = [
@@ -51,50 +53,80 @@ const quickPrompts = [
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
-export function ChatPanel({ parameters }: ChatPanelProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: "Hi! I'm your AI real estate advisor. I'll help you analyze properties based on your financial profile and priorities. Add some listings to get started, or ask me anything about the housing market!",
-      formatted: false,
-    },
-    {
-      id: '2',
-      role: 'user',
-      content: "What do you think about the Capitol Hill listing?",
-      formatted: false,
-    },
-    {
-      id: '3',
-      role: 'assistant',
-      content: `Let me analyze the **Capitol Hill property at $425,000** based on your profile:
-
-**Financial Fit:**
-• Monthly payment: ~$2,850 (with 20% down)
-• This is **within your $3,500 budget** ✓
-• Down payment needed: $85,000 (you have $60,000)
-
-**Key Considerations:**
-• **Affordability (85% priority)**: Strong match - leaves room in your budget
-• **Neighborhood Safety (75% priority)**: Capitol Hill scores well on safety metrics
-• **Commute Time (60% priority)**: Excellent transit access to downtown
-
-**Potential Concerns:**
-⚠️ You're $25,000 short on the down payment - consider PMI or bridging options
-⚠️ Capitol Hill market is competitive - properties move quickly
-
-**Overall Score: 78/100** - This is a solid option that aligns well with your top priorities!`,
-      formatted: true,
-    },
-  ]);
+export function ChatPanel({ parameters, listings, setListings }: ChatPanelProps) {
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
-  const [listings, setListings] = useState<Listing[]>([]);
   const [listingUrl, setListingUrl] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isScraping, setIsScraping] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Load chat history on mount
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      try {
+        console.log('[CHAT] Loading chat history...');
+        const response = await fetch(`${API_BASE_URL}/api/chat-history?user_id=1&limit=50`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[CHAT] Received chat history:', data);
+          
+          if (data.success && data.messages && data.messages.length > 0) {
+            // Convert backend messages to frontend format
+            const loadedMessages: Message[] = [];
+            
+            // Messages come in reverse order (newest first), so reverse them
+            const sortedMessages = [...data.messages].reverse();
+            
+            sortedMessages.forEach((msg: any) => {
+              // Add user message
+              loadedMessages.push({
+                id: `user-${msg.id}`,
+                role: 'user',
+                content: msg.message,
+                formatted: false,
+              });
+              
+              // Add assistant response
+              loadedMessages.push({
+                id: `assistant-${msg.id}`,
+                role: 'assistant',
+                content: msg.response,
+                formatted: true,
+              });
+            });
+            
+            setMessages(loadedMessages);
+            console.log('[CHAT] Loaded', loadedMessages.length, 'messages');
+          } else {
+            // No history, show welcome message
+            setMessages([{
+              id: '1',
+              role: 'assistant',
+              content: "Hi! I'm your AI real estate advisor. I'll help you analyze properties based on your financial profile and priorities. Add some listings to get started, or ask me anything about the housing market!",
+              formatted: false,
+            }]);
+          }
+        }
+      } catch (error) {
+        console.error('[CHAT] Error loading chat history:', error);
+        // Show welcome message on error
+        setMessages([{
+          id: '1',
+          role: 'assistant',
+          content: "Hi! I'm your AI real estate advisor. I'll help you analyze properties based on your financial profile and priorities. Add some listings to get started, or ask me anything about the housing market!",
+          formatted: false,
+        }]);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    };
+
+    loadChatHistory();
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
