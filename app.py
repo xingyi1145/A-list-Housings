@@ -9,7 +9,8 @@ from flask import Flask, redirect, render_template, session, url_for, request, f
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from listing_scraper import ListingScraper
 from listing import Listing as ListingModel
 
@@ -27,8 +28,9 @@ CORS(app)  # Enable CORS for frontend API calls
 
 # Configure Gemini API
 GEMINI_API_KEY = env.get("GEMINI_API_KEY")
+gemini_client = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Initialize listing scraper
 listing_scraper = ListingScraper()
@@ -396,12 +398,9 @@ USER'S QUESTION: {user_message}
 
 If the user only provides a greeting, suggest possible questions that they may want to inquire about.
 
-When the user asks about a specific property or mentions a property URL, create a listing for tracking. After your analysis, include a structured listing marker:
-SAVE_LISTING_START{{"url": "property_url", "price": "$XXX,XXX", "price_raw": 000000, "location": "City, State", "city": "City", "state": "State", "bedrooms": X, "bathrooms": X, "property_type": "Single Family", "square_feet": XXXX}}SAVE_LISTING_END
-
 Please provide a comprehensive analysis that includes:
 1. **Financial Fit**: Calculate monthly payment estimates, down payment requirements, and how it fits within their budget
-2. **Key Considerations**: Analyze how each proper  ty aligns with their stated priorities (weighted by importance)
+2. **Key Considerations**: Analyze how each property aligns with their stated priorities (weighted by importance)
 3. **Potential Concerns**: Identify any red flags, risks, or challenges (e.g., short on down payment, market conditions, etc.)
 4. **Overall Score**: Provide a score out of 100 based on how well the property matches their profile and priorities
 
@@ -414,56 +413,19 @@ Format your response using markdown with:
 Be specific, use numbers when possible, and provide practical recommendations."""
 
         # Call Gemini API
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content(prompt)
+        if not gemini_client:
+            return jsonify({'error': 'Gemini API not configured'}), 500
+        
+        response = gemini_client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt
+        )
         
         response_text = response.text
-        saved_listings = []
-        
-        # Check if Gemini wants to save a listing
-        if 'SAVE_LISTING_START' in response_text and 'SAVE_LISTING_END' in response_text:
-            # Extract listing data
-            start_idx = response_text.find('SAVE_LISTING_START') + len('SAVE_LISTING_START')
-            end_idx = response_text.find('SAVE_LISTING_END')
-            listing_json = response_text[start_idx:end_idx].strip()
-            
-            try:
-                listing_data = json.loads(listing_json)
-                
-                # Get user from session (default to user 1 for testing)
-                user_id = 1
-                
-                # Create and save listing
-                saved_listing = SavedListing(
-                    user_id=user_id,
-                    url=listing_data.get('url'),
-                    price=listing_data.get('price'),
-                    price_raw=listing_data.get('price_raw'),
-                    location=listing_data.get('location'),
-                    city=listing_data.get('city'),
-                    state=listing_data.get('state'),
-                    property_type=listing_data.get('property_type'),
-                    bedrooms=listing_data.get('bedrooms'),
-                    bathrooms=listing_data.get('bathrooms'),
-                    square_feet=listing_data.get('square_feet'),
-                    acreage=listing_data.get('acreage'),
-                    source='gemini-created'
-                )
-                
-                db.session.add(saved_listing)
-                db.session.commit()
-                saved_listings.append(saved_listing.to_dict())
-                
-                # Remove the save marker from response
-                response_text = response_text[:response_text.find('SAVE_LISTING_START')] + response_text[end_idx + len('SAVE_LISTING_END'):]
-                
-            except Exception as e:
-                print(f"Error saving listing from Gemini: {e}")
         
         return jsonify({
             "content": response_text.strip(),
-            "formatted": True,
-            "saved_listings": saved_listings
+            "formatted": True
         })
         
     except Exception as e:

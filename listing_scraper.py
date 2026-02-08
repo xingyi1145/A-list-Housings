@@ -5,7 +5,8 @@ Works with any real estate website URL - Gemini extracts the relevant data.
 import os
 import json
 from typing import Dict
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -13,8 +14,6 @@ load_dotenv()
 
 # Configure Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 
 class ListingScraper:
@@ -23,6 +22,8 @@ class ListingScraper:
     def __init__(self):
         if not GEMINI_API_KEY:
             print("Warning: GEMINI_API_KEY not found. Scraper will not work.")
+        else:
+            self.client = genai.Client(api_key=GEMINI_API_KEY)
     
     def scrape(self, url: str) -> Dict:
         """
@@ -37,7 +38,7 @@ class ListingScraper:
         try:
             print(f"[GEMINI SCRAPER] Analyzing URL with Gemini: {url}")
             
-            if not GEMINI_API_KEY:
+            if not hasattr(self, 'client'):
                 return {
                     'error': 'Gemini API key not configured',
                     'url': url,
@@ -133,8 +134,19 @@ Return ONLY valid JSON with no additional text or explanation. Use this exact fo
 }}"""
 
             # Call Gemini
-            model = genai.GenerativeModel('gemini-2.5-flash')
-            response = model.generate_content(prompt)
+            grounding_tool = types.Tool(
+                google_search=types.GoogleSearch()
+            )
+
+            config = types.GenerateContentConfig(
+                tools=[grounding_tool]
+            )
+
+            response = self.client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt,
+                config=config
+            )
             
             # Parse the response
             response_text = response.text.strip()
