@@ -73,6 +73,7 @@ const processedListings: DisplayListing[] = (listingsData as unknown as RawListi
 export function MapPanel() {
   const [selectedListing, setSelectedListing] = useState<string | null>(null);
   const [hoveredListing, setHoveredListing] = useState<string | null>(null);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [overlays, setOverlays] = useState({
     priceHeatmap: false,
     demand: false,
@@ -104,7 +105,16 @@ export function MapPanel() {
   const hoveredData = hoveredListing ? processedListings.find(l => l.id === hoveredListing) : null;
 
   return (
-    <div className="size-full flex flex-col bg-slate-100">
+    <div 
+      className="size-full flex flex-col bg-slate-100"
+      onMouseMove={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        setMousePosition({ 
+          x: e.clientX - rect.left, 
+          y: e.clientY - rect.top 
+        });
+      }}
+    >
       {/* Map Controls Toolbar */}
       {/*
       <div className="p-3 bg-white border-b border-slate-200 space-y-3">
@@ -169,14 +179,22 @@ export function MapPanel() {
             const markerLng = listing.coordinates.lng;
             
             const isSelected = selectedListing === listing.id;
+            const isHovered = hoveredListing === listing.id;
             
             return (
               <AdvancedMarker
                 key={listing.id}
                 position={{ lat: markerLat, lng: markerLng }}
                 onClick={() => setSelectedListing(listing.id)}
-                title={`${listing.location} - $${listing.price.toLocaleString()}`}
-              />
+              >
+                <div
+                  onMouseEnter={() => setHoveredListing(listing.id)}
+                  onMouseLeave={() => setHoveredListing(null)}
+                  className={`w-8 h-8 rounded-full ${getAffordabilityColor(listing.affordability)} border-2 cursor-pointer transition-transform hover:scale-125 flex items-center justify-center shadow-lg`}
+                >
+                  <span className="text-white text-xs font-bold">$</span>
+                </div>
+              </AdvancedMarker>
             );
           })}
         </Map>
@@ -206,6 +224,61 @@ export function MapPanel() {
         <Badge className="absolute top-4 right-4 bg-white text-slate-700 border border-slate-200">
           {filteredListings.length} listings
         </Badge>
+
+        {/* Hover Info Box - Follows Cursor */}
+        {hoveredData && (
+          <Card 
+            className="absolute p-4 shadow-xl bg-white min-w-[280px] pointer-events-none z-50"
+            style={{
+              left: `${mousePosition.x + 15}px`,
+              top: `${mousePosition.y + 15}px`,
+            }}
+          >
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <p className="text-lg font-semibold text-slate-900">
+                    ${hoveredData.price.toLocaleString()}
+                  </p>
+                  <p className="text-sm text-slate-600 mt-1">{hoveredData.location}</p>
+                </div>
+                <Badge 
+                  className={`${
+                    hoveredData.affordability === 'safe' 
+                      ? 'bg-emerald-100 text-emerald-700' 
+                      : hoveredData.affordability === 'stretch'
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-rose-100 text-rose-700'
+                  }`}
+                >
+                  Score: {hoveredData.score}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-4 pt-2 border-t border-slate-200">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-500">Beds:</span>
+                  <span className="text-sm font-medium text-slate-700">
+                    {listingsData.find((l: any) => l.address === hoveredData.location)?.bedrooms || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-500">Baths:</span>
+                  <span className="text-sm font-medium text-slate-700">
+                    {listingsData.find((l: any) => l.address === hoveredData.location)?.bathoom || 'N/A'}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 pt-1">
+                <DollarSign className="size-4 text-slate-500" />
+                <span className="text-xs text-slate-600">
+                  ~${hoveredData.monthlyPayment.toLocaleString()}/mo
+                </span>
+              </div>
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* Filter Controls */}
