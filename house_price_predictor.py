@@ -537,7 +537,6 @@ class HousePricePredictor:
     
     def load_models(self, filepath='models/predictor.pkl'):
         """Load trained models (handles pickle saved from __main__)"""
-        import io
         
         class _Unpickler(pickle.Unpickler):
             """Redirect __main__ references to house_price_predictor module"""

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Settings, MapPin, DollarSign, Shield, GraduationCap, TrendingUp, Wrench } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
@@ -141,32 +141,52 @@ export default function App() {
   // useEffect(() => { loadListings(); }, []);
 
   // Fetch ML predictions for demo listings on startup
+  const hasFetchedPredictions = useRef(false);
+
   useEffect(() => {
+    if (hasFetchedPredictions.current) return;
+    
     const fetchPredictions = async () => {
+      // 1. Mark as fetched immediately to prevent race conditions or double-firing
+      hasFetchedPredictions.current = true;
+      
       const updated = await Promise.all(
         listings.map(async (listing) => {
           if (listing.predicted_prices || !listing.price_raw) return listing;
+          
           try {
             const res = await fetch(`${API_BASE_URL}/api/predict`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(listing),
             });
+            
             if (res.ok) {
               const pred = await res.json();
-              return { ...listing, predicted_prices: pred.predicted_prices, prediction_breakdown: pred.prediction_breakdown };
+              return { 
+                ...listing, 
+                predicted_prices: pred.predicted_prices, 
+                prediction_breakdown: pred.prediction_breakdown,
+                error: undefined 
+              };
+            } else {
+              console.error(`[PREDICT] Failed for ${listing.location}: ${res.status}`);
+              return { 
+                ...listing, 
+                error: `Prediction failed: ${res.status}` 
+              };
             }
           } catch (err) {
             console.error('[PREDICT] Error fetching prediction for', listing.location, err);
+            return { ...listing, error: 'Network error during prediction' };
           }
-          return listing;
         })
       );
+      
       setListings(updated);
     };
     fetchPredictions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [listings]);
 
   // Prepare parameters object for API
   const parameters = {

@@ -16,6 +16,17 @@ from listing_scraper import ListingScraper
 from listing import Listing as ListingModel
 from house_price_predictor import HousePricePredictor
 
+# --- Helper Functions ---
+def make_json_serializable(obj):
+    """Recursively convert numpy types to native Python types for JSON serialization"""
+    if isinstance(obj, dict):
+        return {str(k): make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(i) for i in obj]
+    elif hasattr(obj, 'item'):  # numpy scalar
+        return obj.item()
+    return obj
+
 # Load environment variables
 ENV_FILE = find_dotenv()
 if ENV_FILE:
@@ -40,9 +51,8 @@ listing_scraper = ListingScraper()
 # Initialize ML price predictor
 house_predictor = None
 try:
-    import os as _os
     _model_path = 'models/predictor.pkl'
-    if _os.path.exists(_model_path):
+    if os.path.exists(_model_path):
         house_predictor = HousePricePredictor()
         house_predictor.load_models(_model_path)
         print('[INIT] ML price predictor loaded successfully')
@@ -321,16 +331,8 @@ def scrape_listing():
             try:
                 listing_obj = ListingModel.from_dict(scraped_data)
                 if listing_obj.predict_future_prices(predictor=house_predictor):
-                    def to_native(obj):
-                        if isinstance(obj, dict):
-                            return {str(k): to_native(v) for k, v in obj.items()}
-                        elif isinstance(obj, (list, tuple)):
-                            return [to_native(i) for i in obj]
-                        elif hasattr(obj, 'item'):
-                            return obj.item()
-                        return obj
-                    scraped_data['predicted_prices'] = to_native(listing_obj.predicted_prices)
-                    scraped_data['prediction_breakdown'] = to_native(listing_obj.prediction_breakdown)
+                    scraped_data['predicted_prices'] = make_json_serializable(listing_obj.predicted_prices)
+                    scraped_data['prediction_breakdown'] = make_json_serializable(listing_obj.prediction_breakdown)
                     print(f"[SCRAPE] ML prediction attached: 5yr = ${listing_obj.get_5_year_prediction():,.0f}")
                 else:
                     print(f"[SCRAPE] ML prediction failed: {listing_obj.error}")
@@ -352,25 +354,17 @@ def predict_listing():
         if not house_predictor:
             return jsonify({"error": "ML model not loaded"}), 500
         
-        price_raw = data.get('price_raw')
-        if not price_raw:
-            return jsonify({"error": "price_raw is required"}), 400
+        required_fields = ['price_raw', 'bedrooms', 'bathrooms', 'square_feet', 'property_type']
+        missing_fields = [f for f in required_fields if f not in data or data[f] is None]
+        
+        if missing_fields:
+            return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
         
         listing_obj = ListingModel.from_dict(data)
         if listing_obj.predict_future_prices(predictor=house_predictor):
-            # Convert numpy types to native Python for JSON serialization
-            def to_native(obj):
-                if isinstance(obj, dict):
-                    return {str(k): to_native(v) for k, v in obj.items()}
-                elif isinstance(obj, (list, tuple)):
-                    return [to_native(i) for i in obj]
-                elif hasattr(obj, 'item'):  # numpy scalar
-                    return obj.item()
-                return obj
-            
             return jsonify({
-                "predicted_prices": to_native(listing_obj.predicted_prices),
-                "prediction_breakdown": to_native(listing_obj.prediction_breakdown)
+                "predicted_prices": make_json_serializable(listing_obj.predicted_prices),
+                "prediction_breakdown": make_json_serializable(listing_obj.prediction_breakdown)
             })
         else:
             return jsonify({"error": listing_obj.error or "Prediction failed"}), 500
@@ -574,7 +568,7 @@ def chat():
         # Build context prompt
         prompt = f"""You are an expert AI real estate and investment advisor for A-list Housings. 
 You are powered by a custom backend Machine Learning model that predicts future house prices. 
-Whenever a user asks about investments, future value, appreciation, or compares properties, you MUST use the 'predicted_prices' and 'prediction_breakdown' data provided in the JSON. Do not guess future prices; rely strictly on the model's data.
+Whenever a user asks about investments, future value, appreciation, or compares properties, you MUST use the 'predicted_prices' and 'prediction_breakdown' data provided in the JSON. Do not guess or infer any numeric future prices; rely strictly on the model's data when it is available. If for a given property the 'predicted_prices' or 'prediction_breakdown' fields are missing or set to placeholders like 'No prediction available' or 'No breakdown available', you MUST NOT invent or approximate future price numbers. In those cases, explicitly state that model predictions are unavailable for that property, limit your response to qualitative, general real estate considerations (e.g., neighborhood, property type, relative size), and suggest that the user ensure ML predictions are loaded if they want quantitative investment or appreciation analysis.
 
 USER'S FINANCIAL PROFILE:
 - Annual Income: ${financial.get('income', 'N/A')}
