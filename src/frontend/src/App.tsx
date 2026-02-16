@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Settings, MapPin, DollarSign, Shield, GraduationCap, TrendingUp, Wrench } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
@@ -36,6 +36,8 @@ interface Listing {
   lot_size?: number;
   source?: string;
   error?: string;
+  predicted_prices?: any;
+  prediction_breakdown?: any;
 }
 
 export default function App() {
@@ -101,6 +103,8 @@ export default function App() {
       square_feet: 1600,
       property_type: 'Single Family',
       source: 'demo',
+      predicted_prices: null,
+      prediction_breakdown: null,
     },
     {
       id: 'demo-2',
@@ -113,6 +117,8 @@ export default function App() {
       square_feet: 900,
       property_type: 'Condo',
       source: 'demo',
+      predicted_prices: null,
+      prediction_breakdown: null,
     },
     {
       id: 'demo-3',
@@ -125,12 +131,62 @@ export default function App() {
       square_feet: 2400,
       property_type: 'Single Family',
       source: 'demo',
+      predicted_prices: null,
+      prediction_breakdown: null,
     },
   ]);
 
   // Demo listings are pre-populated above — no need to load from backend
   // Backend listings can be loaded later if needed by uncommenting the useEffect below
   // useEffect(() => { loadListings(); }, []);
+
+  // Fetch ML predictions for demo listings on startup
+  const hasFetchedPredictions = useRef(false);
+
+  useEffect(() => {
+    if (hasFetchedPredictions.current) return;
+    
+    const fetchPredictions = async () => {
+      // 1. Mark as fetched immediately to prevent race conditions or double-firing
+      hasFetchedPredictions.current = true;
+      
+      const updated = await Promise.all(
+        listings.map(async (listing) => {
+          if (listing.predicted_prices || !listing.price_raw) return listing;
+          
+          try {
+            const res = await fetch(`${API_BASE_URL}/api/predict`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(listing),
+            });
+            
+            if (res.ok) {
+              const pred = await res.json();
+              return { 
+                ...listing, 
+                predicted_prices: pred.predicted_prices, 
+                prediction_breakdown: pred.prediction_breakdown,
+                error: undefined 
+              };
+            } else {
+              console.error(`[PREDICT] Failed for ${listing.location}: ${res.status}`);
+              return { 
+                ...listing, 
+                error: `Prediction failed: ${res.status}` 
+              };
+            }
+          } catch (err) {
+            console.error('[PREDICT] Error fetching prediction for', listing.location, err);
+            return { ...listing, error: 'Network error during prediction' };
+          }
+        })
+      );
+      
+      setListings(updated);
+    };
+    fetchPredictions();
+  }, [listings]);
 
   // Prepare parameters object for API
   const parameters = {
@@ -162,6 +218,8 @@ export default function App() {
       year_built: l.year_built,
       lot_size: l.lot_size,
       source: l.source,
+      predicted_prices: l.predicted_prices,
+      prediction_breakdown: l.prediction_breakdown,
     })),
   };
 
